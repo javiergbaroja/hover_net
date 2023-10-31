@@ -1,4 +1,5 @@
 import torch.optim as optim
+import torch.cuda as cuda
 
 from run_utils.callbacks.base import (
     AccumulateRawOutput,
@@ -20,7 +21,13 @@ from .run_desc import proc_valid_step_output, train_step, valid_step, viz_step_o
 
 # TODO: training config only ?
 # TODO: switch all to function name String for all option
-def get_config(nr_type, mode):
+def get_config(nr_type:int, 
+               mode:str, 
+               lr:list=[1e-4, 1e-4], 
+               batch_size:list=[16, 4], 
+               nr_epochs:list=[50,50], 
+               save_best_only:bool=False,
+               patience:int=10000):
     return {
         # ------------------------------------------------------------------
         # ! All phases have the same number of run engine
@@ -37,7 +44,7 @@ def get_config(nr_type, mode):
                         "optimizer": [
                             optim.Adam,
                             {  # should match keyword for parameters within the optimizer
-                                "lr": 1.0e-4,  # initial learning rate,
+                                "lr": lr[0],  # initial learning rate,
                                 "betas": (0.9, 0.999),
                             },
                         ],
@@ -52,13 +59,14 @@ def get_config(nr_type, mode):
                         },
                         # path to load, -1 to auto load checkpoint from previous phase,
                         # None to start from scratch
-                        "pretrained": "../pretrained/ImageNet-ResNet50-Preact_pytorch.tar",
+                        "pretrained": "/storage/homefs/jg23p152/project/pretrained/ImageNet-ResNet50-Preact_pytorch.tar",
                         # 'pretrained': None,
+                        "device": "cuda" if cuda.is_available() else "cpu",
                     },
                 },
                 "target_info": {"gen": (gen_targets, {}), "viz": (prep_sample, {})},
-                "batch_size": {"train": 16, "valid": 16,},  # engine name : value
-                "nr_epochs": 50,
+                "batch_size": {"train": batch_size[0], "valid": batch_size[0]*2},  # engine name : value
+                "nr_epochs": nr_epochs[0],
             },
             {
                 "run_info": {
@@ -71,7 +79,7 @@ def get_config(nr_type, mode):
                         "optimizer": [
                             optim.Adam,
                             {  # should match keyword for parameters within the optimizer
-                                "lr": 1.0e-4,  # initial learning rate,
+                                "lr": lr[1],  # initial learning rate,
                                 "betas": (0.9, 0.999),
                             },
                         ],
@@ -87,11 +95,12 @@ def get_config(nr_type, mode):
                         # path to load, -1 to auto load checkpoint from previous phase,
                         # None to start from scratch
                         "pretrained": -1,
+                        "device": "cuda" if cuda.is_available() else "cpu",
                     },
                 },
                 "target_info": {"gen": (gen_targets, {}), "viz": (prep_sample, {})},
-                "batch_size": {"train": 4, "valid": 8,}, # batch size per gpu
-                "nr_epochs": 50,
+                "batch_size": {"train": batch_size[1]*2, "valid": batch_size[1]*2,}, # batch size per gpu
+                "nr_epochs": nr_epochs[1],
             },
         ],
         # ------------------------------------------------------------------
@@ -113,9 +122,9 @@ def get_config(nr_type, mode):
                     ],
                     Events.EPOCH_COMPLETED: [
                         TrackLr(),
-                        PeriodicSaver(),
                         VisualizeOutput(viz_step_output),
                         LoggingEpochOutput(),
+                        # PeriodicSaver(save_best_only=save_best_only),
                         TriggerEngine("valid"),
                         ScheduleLr(),
                     ],
@@ -135,6 +144,7 @@ def get_config(nr_type, mode):
                             lambda a: proc_valid_step_output(a, nr_types=nr_type)
                         ),
                         LoggingEpochOutput(),
+                        PeriodicSaver(save_best_only=save_best_only, patience=patience),
                     ],
                 },
             },

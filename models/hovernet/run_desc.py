@@ -25,18 +25,18 @@ def train_step(batch_data, run_info):
     ####
     model = run_info["net"]["desc"]
     optimizer = run_info["net"]["optimizer"]
-
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     ####
     imgs = batch_data["img"]
     true_np = batch_data["np_map"]
     true_hv = batch_data["hv_map"]
 
-    imgs = imgs.to("cuda").type(torch.float32)  # to NCHW
+    imgs = imgs.to(device).type(torch.float32)  # to NCHW
     imgs = imgs.permute(0, 3, 1, 2).contiguous()
 
     # HWC
-    true_np = true_np.to("cuda").type(torch.int64)
-    true_hv = true_hv.to("cuda").type(torch.float32)
+    true_np = true_np.to(device).type(torch.int64)
+    true_hv = true_hv.to(device).type(torch.float32)
 
     true_np_onehot = (F.one_hot(true_np, num_classes=2)).type(torch.float32)
     true_dict = {
@@ -46,7 +46,7 @@ def train_step(batch_data, run_info):
 
     if model.module.nr_types is not None:
         true_tp = batch_data["tp_map"]
-        true_tp = torch.squeeze(true_tp).to("cuda").type(torch.int64)
+        true_tp = torch.squeeze(true_tp).to(device).type(torch.int64)
         true_tp_onehot = F.one_hot(true_tp, num_classes=model.module.nr_types)
         true_tp_onehot = true_tp_onehot.type(torch.float32)
         true_dict["tp"] = true_tp_onehot
@@ -114,6 +114,7 @@ def valid_step(batch_data, run_info):
     run_info, state_info = run_info
     ####
     model = run_info["net"]["desc"]
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()  # infer mode
 
     ####
@@ -121,7 +122,7 @@ def valid_step(batch_data, run_info):
     true_np = batch_data["np_map"]
     true_hv = batch_data["hv_map"]
 
-    imgs_gpu = imgs.to("cuda").type(torch.float32)  # to NCHW
+    imgs_gpu = imgs.to(device).type(torch.float32)  # to NCHW
     imgs_gpu = imgs_gpu.permute(0, 3, 1, 2).contiguous()
 
     # HWC
@@ -172,8 +173,8 @@ def infer_step(batch_data, model):
 
     ####
     patch_imgs = batch_data
-
-    patch_imgs_gpu = patch_imgs.to("cuda").type(torch.float32)  # to NCHW
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    patch_imgs_gpu = patch_imgs.to(device).type(torch.float32)  # to NCHW
     patch_imgs_gpu = patch_imgs_gpu.permute(0, 3, 1, 2).contiguous()
 
     ####
@@ -210,8 +211,8 @@ def viz_step_output(raw_data, nr_types=None):
     if nr_types is not None:
         true_tp, pred_tp = raw_data["tp"]
 
-    aligned_shape = [list(imgs.shape), list(true_np.shape), list(pred_np.shape)]
-    aligned_shape = np.min(np.array(aligned_shape), axis=0)[1:3]
+    aligned_shape = [list(imgs.shape[1:3]), list(true_np.shape[1:3]), list(pred_np.shape[1:3])]
+    aligned_shape = np.min(np.array(aligned_shape), axis=0)
 
     cmap = plt.get_cmap("jet")
 
@@ -273,7 +274,13 @@ def proc_valid_step_output(raw_data, nr_types=None):
         inter = (pred * true).sum()
         total = (pred + true).sum()
         return inter, total
+    
+    def _w_f1_info(true, pred, label):
+        pass
 
+    def _w_f1_calc(true, pred, label):
+        pass
+    
     over_inter = 0
     over_total = 0
     over_correct = 0

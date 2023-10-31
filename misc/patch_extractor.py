@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.9
+
 import math
 import time
 
@@ -53,7 +55,7 @@ class PatchExtractor(object):
             plt.pause(1)
             plt.close()
             self.counter += 1
-        return win
+        return win, ptx, pty
 
     def __extract_valid(self, x):
         """Extracted patches without padding, only work in case win_size > step_size.
@@ -84,27 +86,45 @@ class PatchExtractor(object):
         w_flag, w_last = extract_infos(im_w, self.win_size[1], self.step_size[1])
 
         sub_patches = []
+        row0, row1, col0, col1 = [], [], [], []
         #### Deal with valid block
         for row in range(0, h_last, self.step_size[0]):
             for col in range(0, w_last, self.step_size[1]):
-                win = self.__get_patch(x, (row, col))
+                win, start, end = self.__get_patch(x, (row, col))
                 sub_patches.append(win)
+                row0.append(str(start[0]))
+                row1.append(str(end[0]))
+                col0.append(str(start[1]))
+                col1.append(str(end[1]))
         #### Deal with edge case
         if h_flag:
             row = im_h - self.win_size[0]
             for col in range(0, w_last, self.step_size[1]):
-                win = self.__get_patch(x, (row, col))
+                win, start, end = self.__get_patch(x, (row, col))
                 sub_patches.append(win)
+                row0.append(str(start[0]))
+                row1.append(str(end[0]))
+                col0.append(str(start[1]))
+                col1.append(str(end[1]))
         if w_flag:
             col = im_w - self.win_size[1]
             for row in range(0, h_last, self.step_size[0]):
-                win = self.__get_patch(x, (row, col))
+                win, start, end = self.__get_patch(x, (row, col))
                 sub_patches.append(win)
+                row0.append(str(start[0]))
+                row1.append(str(end[0]))
+                col0.append(str(start[1]))
+                col1.append(str(end[1]))
         if h_flag and w_flag:
-            ptx = (im_h - self.win_size[0], im_w - self.win_size[1])
-            win = self.__get_patch(x, ptx)
+            row, col = (im_h - self.win_size[0], im_w - self.win_size[1])
+            win, start, end = self.__get_patch(x, (row, col))
             sub_patches.append(win)
-        return sub_patches
+            row0.append(str(start[0]))
+            row1.append(str(end[0]))
+            col0.append(str(start[1]))
+            col1.append(str(end[1]))
+
+        return sub_patches, row0, row1, col0, col1
 
     def __extract_mirror(self, x):
         """Extracted patches with mirror padding the boundary such that the 
@@ -129,9 +149,9 @@ class PatchExtractor(object):
 
         pad_type = "constant" if self.debug else "reflect"
         x = np.lib.pad(x, ((padt, padb), (padl, padr), (0, 0)), pad_type)
-        sub_patches = self.__extract_valid(x)
-        return sub_patches
-
+        sub_patches, row0, row1, col0, col1 = self.__extract_valid(x)
+        return sub_patches, row0, row1, col0, col1 
+    
     def extract(self, x, patch_type):
         patch_type = patch_type.lower()
         self.patch_type = patch_type

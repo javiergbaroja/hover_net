@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from scipy import ndimage
 
+import json
 
 ####
 def normalize(mask, dtype=np.uint8):
@@ -180,3 +181,43 @@ def remove_small_objects(pred, min_size=64, connectivity=1):
     out[too_small_mask] = 0
 
     return out
+
+
+def parse_json_file(file_path):
+    """
+    Parses the file specified in path, with some additional security checks.
+    :param file_path: File path to parse
+    :returns : The contents in JSON format, or None if the file is empty.
+    """
+    if not file_path or os.stat(file_path).st_size == 0:
+        return None
+
+    with open(file_path, "r") as json_file:
+        file_contents = json_file.read()
+
+    return parse_json(file_contents)
+
+
+def _replace_single_quotes(text):
+    replaced_text = text.replace("'", '"')
+
+    return replaced_text
+
+def parse_json(text):
+    """
+    Parses the specified text as JSON, with some additional security checks.
+    :param text: Text to parse.
+    :returns : The parsed results, or None if the string is empty.
+    """
+    if not text:
+        return None
+    else:
+        try:
+            return json.loads(text)
+        except Exception:
+            return json.loads(_replace_single_quotes(text))
+
+def save_json(path:str, file_name:str, object):
+    os.makedirs(os.path.join(path), exist_ok=True)
+    with open(os.path.join(path, file_name), 'w') as f:
+        json.dump(object, f)
