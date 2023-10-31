@@ -34,6 +34,7 @@ from misc.utils import (
     log_debug,
     log_info,
     rm_n_mkdir,
+    parse_json_file
 )
 from misc.viz_utils import colorize, visualize_instances_dict
 from skimage import color
@@ -156,8 +157,14 @@ class InferManager(base.InferManager):
         assert self.mem_usage < 1.0 and self.mem_usage > 0.0
 
         # * depend on the number of samples and their size, this may be less efficient
+        root_dir = '/storage/homefs/jg23p152/project/'
         patterning = lambda x: re.sub("([\[\]])", "[\\1]", x)
-        file_path_list = glob.glob(patterning("%s/*" % self.input_dir))
+        if os.path.isdir(self.input_dir):
+            file_path_list = glob.glob(patterning("%s/*" % self.input_dir))
+        else:
+            file_path_list = [tile['img_file'] for tile in parse_json_file(self.input_dir)]
+            if root_dir not in file_path_list[0]:
+                file_path_list = [root_dir + path for path in file_path_list]
         file_path_list.sort()  # ensure same order
         assert len(file_path_list) > 0, 'Not Detected Any Files From Path'
         
