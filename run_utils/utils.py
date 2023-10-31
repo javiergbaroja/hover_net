@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 import shutil
 from collections import OrderedDict
@@ -10,7 +11,7 @@ from imgaug import imgaug as ia
 from termcolor import colored
 from torch.autograd import Variable
 
-
+import logging
 ####
 def convert_pytorch_checkpoint(net_state_dict):
     variable_name_list = list(net_state_dict.keys())
@@ -199,3 +200,15 @@ def get_model_summary(
     summary_str += "Estimated Total Size (MB): %0.2f" % total_size + "\n"
     summary_str += "".join("-" for _ in range(len(header_line))) + "\n"
     return summary_str
+
+
+def create_logger():
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Write logs to the SLURM output file
+    file_handler = logging.StreamHandler(sys.stdout)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
