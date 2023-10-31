@@ -1,16 +1,17 @@
 import importlib
 import random
-
+import os
 import cv2
 import numpy as np
 
 from dataset import get_dataset
+from misc.utils import parse_json_file
 
 
 class Config(object):
     """Configuration file."""
 
-    def __init__(self):
+    def __init__(self, args):
         self.seed = 10
 
         self.logging = True
@@ -24,7 +25,7 @@ class Config(object):
         if model_mode not in ["original", "fast"]:
             raise Exception("Must use either `original` or `fast` as model mode")
 
-        nr_type = 5 # number of nuclear types (including background)
+        # nr_type =  3 # number of nuclear types (including background)
 
         # whether to predict the nuclear type, availability depending on dataset!
         self.type_classification = True
@@ -44,21 +45,21 @@ class Config(object):
             if act_shape != [256,256] or out_shape != [164,164]:
                 raise Exception("If using `fast` mode, input shape must be [256,256] and output shape must be [164,164]")
 
-        self.dataset_name = "consep" # extracts dataset info from dataset.py
-        self.log_dir = "logs/" # where checkpoints will be saved
+        self.dataset_name = args.dataset_name # extracts dataset info from dataset.py
+        self.source_dir = args.source_dir # path to project folder
+        self.log_dir = args.save_dir # where checkpoints will be saved
 
         # paths to training and validation patches
-        self.train_dir_list = [
-            "train_patches_path"
-        ]
-        self.valid_dir_list = [
-            "valid_patches_path"
-        ]
+        self.train_dir_list = [os.path.join(self.source_dir, tile['patches_dir']) for tile in parse_json_file(args.train_file)]  
+        self.valid_dir_list = [os.path.join(self.source_dir, tile['patches_dir']) for tile in parse_json_file(args.val_file)]
 
         self.shape_info = {
             "train": {"input_shape": act_shape, "mask_shape": out_shape,},
             "valid": {"input_shape": act_shape, "mask_shape": out_shape,},
         }
+
+        self.save_best_only = args.save_best_only
+        # self.early_stop_patience = args.early_stopping
 
         # * parsing config to the running state and set up associated variables
         self.dataset = get_dataset(self.dataset_name)
@@ -66,4 +67,5 @@ class Config(object):
         module = importlib.import_module(
             "models.%s.opt" % model_name
         )
-        self.model_config = module.get_config(nr_type, model_mode)
+        self.model_config = module.get_config(args.nr_type, model_mode, args.lr, args.batch_size, args.nr_epochs, args.save_best_only, args.early_stopping)
+        

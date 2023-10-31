@@ -113,7 +113,7 @@ if __name__ == '__main__':
     gpu_list = args.pop('--gpu')
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
 
-    nr_gpus = torch.cuda.device_count()
+    nr_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
     log_info('Detect #GPUS: %d' % nr_gpus)
 
     args = {k.replace('--', '') : v for k, v in args.items()}

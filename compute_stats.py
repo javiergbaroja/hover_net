@@ -17,9 +17,10 @@ from metrics.stats_utils import (
     remap_label,
     pair_coordinates
 )
+from misc.utils import parse_json_file
 
 
-def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True):
+def run_nuclei_type_stat(pred_dir, true_info, root_dir, type_uid_list=None, exhaustive=True, only_epit=True):
     """GT must be exhaustively annotated for instance location (detection).
 
     Args:
@@ -36,7 +37,8 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
                      for instance types
                      
     """
-    file_list = glob.glob(pred_dir + "*.mat")
+    print("Predictions in dir: ", pred_dir)
+    file_list = [f.path for f in os.scandir(pred_dir) if f.is_file()]
     file_list.sort()  # ensure same order [1]
 
     paired_all = []  # unique matched index pair
@@ -44,17 +46,32 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
     unpaired_pred_all = []  # the index must exist in `pred_inst_type_all` and unique
     true_inst_type_all = []  # each index is 1 independent data point
     pred_inst_type_all = []  # each index is 1 independent data point
+    true_dict_list = parse_json_file(true_info)
+    true_dir = os.path.join(args.root_dir, os.path.dirname(true_dict_list[0]['mat_file']))
     for file_idx, filename in enumerate(file_list[:]):
         filename = os.path.basename(filename)
-        basename = filename.split(".")[0]
+        basename = os.path.splitext(filename)[0]
+        dict_list_pos = np.where([basename == tile['img_id'] for tile in true_dict_list])[0][0]
+
+        is_tcga = True if 'tcga' in basename.lower() else False
+        centroid_key = 'centroid' if not is_tcga else 'inst_centroid'
+        type_key = 'class' if not is_tcga else 'inst_type'
+        
 
         true_info = sio.loadmat(os.path.join(true_dir, basename + ".mat"))
         # dont squeeze, may be 1 instance exist
-        true_centroid = (true_info["inst_centroid"]).astype("float32")
-        true_inst_type = (true_info["inst_type"]).astype("int32")
+        true_centroid = (true_info[centroid_key]).astype("float32")
+        true_inst_type = (true_info[type_key]).astype("int32")
+
+        if only_epit and not is_tcga: 
+            epit_type = true_dict_list[dict_list_pos]['malignant'] + 1
+            true_inst_type[true_inst_type != 2] = 0
+            true_inst_type[true_inst_type == 2] = epit_type
+
 
         if true_centroid.shape[0] != 0:
-            true_inst_type = true_inst_type[:, 0]
+            # true_inst_type = true_inst_type[:, 0]
+            true_inst_type = true_inst_type.flatten()
         else:  # no instance at all
             true_centroid = np.array([[0, 0]])
             true_inst_type = np.array([0])
@@ -69,7 +86,8 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
         pred_inst_type = (pred_info["inst_type"]).astype("int32")
 
         if pred_centroid.shape[0] != 0:
-            pred_inst_type = pred_inst_type[:, 0]
+            # pred_inst_type = pred_inst_type[:, 0]
+            pred_inst_type = pred_inst_type.flatten()
         else:  # no instance at all
             pred_centroid = np.array([[0, 0]])
             pred_inst_type = np.array([0])
@@ -113,6 +131,65 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
     unpaired_pred_type = pred_inst_type_all[unpaired_pred_all]
 
     ###
+    def _w_f1_type(paired_true, paired_pred, unpaired_true=None, unpaired_pred=None, type_id=None, simple=True):
+        # For this computation we do not care about cells without cell type. Thus we delete all cells
+        # with paired_true==0 or unpaired_true==0 from the arrays.
+
+        epit_pos_paired = paired_true != 0
+        paired_true = paired_true[epit_pos_paired]
+        paired_pred = paired_pred[epit_pos_paired]
+
+        epit_pos_unpaired = unpaired_true != 0
+        unpaired_true = unpaired_true[epit_pos_unpaired]
+
+        epit_pos_unpaired = unpaired_true != 0
+        unpaired_true = unpaired_true[epit_pos_unpaired]
+        epit_pos_unpaired = unpaired_pred != 0
+        unpaired_pred = unpaired_pred[epit_pos_unpaired]
+
+        # if simple:
+            # from sklearn.metrics import f1_score
+            # return f1_score(paired_true, paired_pred, average='weighted', labels=[1,2])
+        # else:
+
+        f1s = {}
+        accuracies = {}
+        precisions = {}
+        recalls = {}
+        ratios = {}
+        total_count = len(paired_true) if simple else len(paired_true) + len(unpaired_true)  
+        for label in np.unique(paired_true):
+            tp = ((paired_true == label) & (paired_pred == label)).sum()
+            tn = ((paired_true != label) & (paired_pred != label)).sum()
+            fp = ((paired_true != label) & (paired_pred == label)).sum()
+            fn = ((paired_true == label) & (paired_pred != label)).sum()
+
+            total_count_type = (paired_true == label).sum()
+
+            # unpaired_pred are false cells, and unpaired_true are missed cells
+            if not simple:
+                fp += (unpaired_pred == label).sum()
+                fn += (unpaired_true == label).sum()
+                total_count_type += (unpaired_true == label).sum()
+            f1s[label] = (2 * tp) / (2 * tp + fp + fn)
+            accuracies[label] = (tp + tn) / (tp + tn + fp + fn)
+            precisions[label] = tp / (tp + fp)
+            recalls[label] = tp / (tp + fn)
+            ratios[label] = total_count_type / total_count
+
+        f1s['weighted'] = sum([f1s[label] * ratios[label] for label in f1s.keys()])
+        accuracies['weighted'] = sum([accuracies[label] * ratios[label] for label in accuracies.keys()])
+        precisions['weighted'] = sum([precisions[label] * ratios[label] for label in precisions.keys()])
+        recalls['weighted'] = sum([recalls[label] * ratios[label] for label in recalls.keys()])
+
+        print(f"Stats counting missed cells: {not simple}")
+        print(f"\nw-Accuracy: \n {accuracies}")
+        print(f"\nw-Precision: \n {precisions}")
+        print(f"\nw-Recall: \n {recalls}")
+        print(f"\nw-F1: \n {f1s}")
+        return f1s            
+
+
     def _f1_type(paired_true, paired_pred, unpaired_true, unpaired_pred, type_id, w):
         type_samples = (paired_true == type_id) | (paired_pred == type_id)
 
@@ -142,10 +219,13 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
 
     # overall
     # * quite meaningless for not exhaustive annotated dataset
+    wf1s = _w_f1_type(paired_true_type, paired_pred_type, unpaired_true_type, unpaired_pred_type, simple=True)
+    wf1 = _w_f1_type(paired_true_type, paired_pred_type, unpaired_true_type, unpaired_pred_type, simple=False)
+
     w = [1, 1]
     tp_d = paired_pred_type.shape[0]
-    fp_d = unpaired_pred_type.shape[0]
-    fn_d = unpaired_true_type.shape[0]
+    fp_d = unpaired_pred_type.shape[0] # Falsely detected cells
+    fn_d = unpaired_true_type.shape[0] # Missed cells
 
     tp_tn_dt = (paired_pred_type == paired_true_type).sum()
     fp_fn_dt = (paired_pred_type != paired_true_type).sum()
@@ -179,13 +259,13 @@ def run_nuclei_type_stat(pred_dir, true_dir, type_uid_list=None, exhaustive=True
     return
 
 
-def run_nuclei_inst_stat(pred_dir, true_dir, print_img_stats=False, ext=".mat"):
+def run_nuclei_inst_stat(pred_dir, true_dir, root_dir, print_img_stats=False, ext=".mat"):
     # print stats of each image
     print(pred_dir)
 
     file_list = glob.glob("%s/*%s" % (pred_dir, ext))
     file_list.sort()  # ensure same order
-
+    file_list_true = [os.path.join(root_dir, tile['mat_file']) for tile in parse_json_file(true_dir)]
     metrics = [[], [], [], [], [], []]
     for filename in file_list[:]:
         filename = os.path.basename(filename)
@@ -240,9 +320,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--true_dir", help="point to ground truth dir", nargs="?", default="", const=""
     )
+    parser.add_argument(
+        "--root_dir", help="point to root dir", nargs="?", default="", const=""
+    )
     args = parser.parse_args()
 
+    
+
     if args.mode == "instance":
-        run_nuclei_inst_stat(args.pred_dir, args.true_dir, print_img_stats=False)
+        run_nuclei_inst_stat(args.pred_dir, args.true_dir, args.root_dir, print_img_stats=False)
     if args.mode == "type":
-        run_nuclei_type_stat(args.pred_dir, args.true_dir)
+        run_nuclei_type_stat(args.pred_dir, args.true_dir,  args.root_dir)
