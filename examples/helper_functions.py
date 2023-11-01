@@ -242,7 +242,7 @@ def build_df(data_path:str, legend:dict=legend_short, labels_folder:str='Labels'
 
     for path, __, files in os.walk(data_path):
         for name in files:
-            if name.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp')):
+            if name.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp')) and "images_40x" not in os.path.join(path, name):
                 img_file = os.path.join(path, name)
                 result_mat = load_result_mat(img_file, labels_folder)
 
