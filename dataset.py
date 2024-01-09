@@ -2,6 +2,7 @@ import glob
 import cv2
 import numpy as np
 import scipy.io as sio
+from skimage.morphology import dilation, disk
 
 
 class __AbstractDataset(object):
@@ -143,7 +144,7 @@ class __Lizard(__AbstractDataset):
         inst_map = inst_map * keep_inst_map 
         return type_map, inst_map
 
-    def load_ann(self, path, with_type=False, to_keep:list=[2], is_healthy:bool=True):
+    def load_ann(self, path, with_type=False, to_keep:list=[2], is_healthy:bool=True, img=None):
         # in this case the annotation is saved as a dictionary with keys:
             # 'inst_map': instance map with cell instances numbered from 1 to cell_count
             # 'class': array of array.shape = (cell_count, 1), with same order as in 'inst_map'
@@ -174,7 +175,60 @@ class __Lizard(__AbstractDataset):
 
         return ann
 
+####
+class __Lizard_Pred(__Lizard):
+    def __init__(self):
+        self.inst_map_key = 'inst_map'
+        self.cell_type_key = 'inst_type'
+
+    def prepare_inst_map(self, mat_file:dict, img:np.ndarray) -> np.ndarray:
+            """Prepare instance map for processing. The mat_file only contains centroid information. The centroids are used to generate the instance map.
+            
+            Args:
+                mat_file: mat file dictionary containing the centroids information
+                img: original image
+            """
+            inst_map = np.zeros(img.shape[:2], dtype=np.int32)
+            inst_centroids = mat_file['inst_centroid']
+            inst_centroids = inst_centroids.astype(np.int32)
+            for i, centroid in enumerate(inst_centroids):
+                inst_map[centroid[1], centroid[0]] = i+1
+            
+            return dilation(inst_map, disk(4))
     
+    def load_ann(self, path, with_type=False, to_keep:list=[2], is_healthy:bool=True, img=None):
+        # in this case the annotation is saved as a dictionary with keys:
+            # 'inst_map': instance map with cell instances numbered from 1 to cell_count
+            # 'class': array of array.shape = (cell_count, 1), with same order as in 'inst_map'
+
+        mat_file = sio.loadmat(path)
+        if self.inst_map_key in mat_file:
+            ann_inst = mat_file[self.inst_map_key]
+        else:
+            ann_inst = self.prepare_inst_map(mat_file, img)
+
+
+        # In our task we only care about epithelial cells, so we merge all other cell types into the background class
+        # Consequently we have three classes in the annotation mask from the original six:
+        #  0. Background
+        #  1. Healthy Epithelial - if source image in 'tiles_healthy' folder
+        #  2. Malignant Epithelial - if source image in 'tiles_malignant' folder
+        # We specify the that the only class to be kept in the annotation map is the epithelial class (2)
+        
+        if with_type:
+
+            ann_type, __ = self._inst_to_class(ann_inst, mat_file[self.cell_type_key], to_keep=to_keep)
+            
+            # Stack instance map and class map to create a single annotation map 
+            ann = np.dstack([ann_inst, ann_type])
+            ann = ann.astype("int32")
+            return ann
+            
+        else:
+            ann = np.expand_dims(ann_inst, -1)
+            ann = ann.astype("int32")
+
+        return ann
 
 ####
 class __PanNuke(__Lizard):
@@ -188,12 +242,18 @@ class __TCGA(__Lizard):
     def __init__(self):
         self.inst_map_key = 'inst_map'
         self.cell_centroid = 'inst_centroid'
+        self.im_shape = []
     
     def load_img(self, path):
-        return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
+        im = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
+        self.im_shape = im.shape
+        return im
     
-    def load_ann(self, path):
-        raise NotImplementedError(f'TCGA annotation is limited to cell centroids. Need to run segmentation before it can be used.')
+    def load_ann(self, path, with_type=False, to_keep:list=[2], is_healthy:bool=True, img=None):
+        return np.zeros(self.im_shape[:2]+(2,), dtype=np.int32)
+        
+
+        Warning("TCGA dataset is not yet supported")
     ##TODO: the TCGA annotation is limited to cell centroids. Need to run segmentation before it can be used.
 
 
@@ -205,6 +265,7 @@ def get_dataset(name):
         "cpm17": lambda: __CPM17(),
         "consep": lambda: __CoNSeP(),
         "lizard": lambda: __Lizard(),
+        "lizard_pred": lambda: __Lizard_Pred(),
         "pannuke": lambda: __PanNuke(),
         "tcga": lambda: __TCGA(),
     }
